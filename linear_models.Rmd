@@ -1,0 +1,83 @@
+---
+title: "Linear Models"
+author: "Risa Dickerman"
+date: "2026-11-12"
+output: _document
+---
+
+```{r}
+library(tidyverse)
+library(p8105.datasets)
+```
+
+# Airbnb
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb |> 
+  mutate( 
+    starts = review_scores_location / 2
+  ) |> 
+  rename(
+    borough = neighborhood
+  ) |> 
+  filter(
+    borough != "Staten Island"
+  ) |> 
+  select(
+    price, stars, borough, room_type
+  )
+
+nyc_airbnb
+```
+
+#linear regression
+```{r}
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+```
+
+What we have
+```{r}
+fit
+summary(fit)
+coef(fit)
+
+fitted.values(fit)
+resid(fit)
+names(summary(fit))
+```
+
+Names of things in fit
+  -some stuff that goes along: what is rank, what is df residual, etc
+Linear model saves a bunch of stuff in the background - helpful to know its their
+
+most of the output is bad, but sometimes it's useful
+
+```{r}
+broom::tidy(fit) |> 
+  select(-std.error) |> 
+  knitr::kable(digits = 3)
+
+broom::glance(fit)
+```
+-broom function super useful, broom pulls out this useful information
+  -broom useful for anything
+  
+  -broom::glance(fit) - gives you very quick look at information that is helpful. 
+  
+Change reference category
+```{r}
+fit=
+  nyc_airbnb |> 
+  mutate(
+    borough = fct_infreq(borough)
+  ) |> 
+  lm(price ~ stars + borough, data = _)
+
+broom::tidy(fit) |> 
+  select(-std.error) |> 
+  mutate(term = str_replace(term, "borough", "Borough:"))
+  knitr::kable(digits = 3)
+```
+  
