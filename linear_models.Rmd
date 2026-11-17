@@ -2,12 +2,13 @@
 title: "Linear Models"
 author: "Risa Dickerman"
 date: "2026-11-12"
-output: _document
+output: github_document
 ---
 
 ```{r}
 library(tidyverse)
 library(p8105.datasets)
+library(ggplot2)
 ```
 
 # Airbnb
@@ -17,34 +18,46 @@ data("nyc_airbnb")
 nyc_airbnb = 
   nyc_airbnb |> 
   mutate( 
-    starts = review_scores_location / 2
+    stars = review_scores_location / 2
   ) |> 
   rename(
-    borough = neighborhood
+    borough = neighbourhood_group,
+    neighborhood = neighbourhood
   ) |> 
   filter(
     borough != "Staten Island"
   ) |> 
   select(
-    price, stars, borough, room_type
+    price, stars, borough, neighborhood, room_type
   )
 
 nyc_airbnb
 ```
+eliminating Staten island because we just don't want to base model on an item that has very few data points
+
+## Fit a model
+```{r}
+nyc_airbnb |> 
+  ggplot(aes(x = stars, y = price, color = borough)) +
+  geom_point()
+```
+
+Let's fit the model that we care about
 
 #linear regression
 ```{r}
 fit = lm(price ~ stars + borough, data = nyc_airbnb)
 ```
 
-What we have
+What we have done? Let's look at result...
 ```{r}
 fit
 summary(fit)
+summary(fit)$coef
 coef(fit)
 
-fitted.values(fit)
-resid(fit)
+#fitted.values(fit)
+#resid(fit)
 names(summary(fit))
 ```
 
@@ -54,54 +67,88 @@ Linear model saves a bunch of stuff in the background - helpful to know its thei
 
 most of the output is bad, but sometimes it's useful
 
+Let's look at the results better...
+
 ```{r}
+broom::glance(fit)
+
 broom::tidy(fit) |> 
   select(-std.error) |> 
+  mutate(
+    term = str_replace(term, "borough", "Borough: ")
+  ) |> 
   knitr::kable(digits = 3)
-
-broom::glance(fit)
 ```
+bronx is automatically the reference group
 -broom function super useful, broom pulls out this useful information
-  -broom useful for anything
-  
   -broom::glance(fit) - gives you very quick look at information that is helpful. 
   
-Change reference category
+## Be in control of factors:
+  -borough variable is a character variable: usually converted into factor variable
+    -factor variable: string label lying on top of number affixed to it. If not careful: R will do best guess
+    
+Change reference category for interested variables
+  -reference group is one with most airbnb rentals
+  -room type = factor variable, wichever one is most common
+  
 ```{r}
-fit=
+nyc_airbnb_infreq=
   nyc_airbnb |> 
   mutate(
-    borough = fct_infreq(borough)
-  ) |> 
-  lm(price ~ stars + borough, data = _)
-
-broom::tidy(fit) |> 
-  select(-std.error) |> 
-  mutate(term = str_replace(term, "borough", "Borough:"))
-  knitr::kable(digits = 3)
+    borough = fct_infreq(borough),
+    room_type = fct_infreq(room_type)
+  )
+nyc_airbnb_infreq |> 
+  ggplot(aes(x = stars, y = price, color = borough)) +
+  geom_point()
 ```
+  -Manhattan > Brooklyn > Queens > Bronx most 
   
-  
-  ##Diagnostics
-  
-  diagnostics is basically "look at the residuals"
+Refit model
+```{r}
+fit_infreq= lm(price ~ stars + borough, data = nyc_airbnb_infreq)
+fit_infreq
+
+broom::tidy(fit_infreq) |> 
+  select(-std.error) |> 
+  mutate(term = str_replace(term, "borough", "Borough:")) |> 
+  knitr::kable(digits = 3)
+
+  broom::glance(fit_infreq)
+```
+-previously comparing everything to the Bronx, now comparing everything to Manhattan
+  -hasn't substantially changed what is happening
+
+## Diagnostics
+  -up until this point doing residuals of fit
+    -want variables and tack on residuals and fitted values
+diagnostics is basically "look at the residuals"
   
 ```{r}
-modelr::add_residuals(nyc_airbnb, fit)
+modelr::add_residuals(nyc_airbnb_infreq, fit)
 ```
 Adding in a column called resid: worry about residuals and residual distribution
-  We can look at residuals
-```{r}
-nyc_airbnb |> 
-  modelr::add_residuals(fit) |> 
-  ggplot(aes(x = stars, y = resid)) +
-  geom_point()
+  now have residuals based on model fit: distribution of residuals
 
-nyc_airbnb |> 
-  modelr::add_residuals(fit) |> 
+
+We can look at residuals
+```{r}
+nyc_airbnb_infreq |> 
+  modelr::add_residuals(fit_infreq) |> 
   ggplot(aes(x = borough, y = resid)) +
-  geom_violoin()
+  geom_violin() +
+  ylim(-500, 1500)
+
+nyc_airbnb_infreq |> 
+  modelr::add_residuals(fit_infreq) |> 
+  ggplot(aes(x = stars, y = resid)) +
+  geom_point() +
+  facet_wrap(. ~ borough)
 ```
+model will have outliers. But the residuals seem to be incredibly large
+  -issues that come in because we have huge outliers
+  > some issue in model try to find error
+
 Residuals are skewed:
   -much more spread in 5 stars vs 3 stars
 
@@ -111,10 +158,23 @@ With regression with large samples everything becomes equally distributed
 ## Hypothesis testing
 
 ```{r}
-broom::tidy(fit) |> 
+fit_infreq |> 
+broom::tidy() |> 
   mutate(term = str_replace(term, "borough", "Borough: ")) |> 
   knitr::kable(digits = 3)
 ```
+R doing hypothesis test on estimate with standard error, statistics, p value
+  -can also do a p test
+Categorical predictor with mult levels: not ask if individual levels differ from the reference group
+  -if predictor or categorical value as a whole is significnt in the context of my model
+
+broom::tidy() does t test by default
+
+What about the significance of "borough"
+  F test or ANOVA
+    -fit_null = lm(price ~ stars)
+      -if null hypothesis borough is not associated with price
+      -alternative model: lm(price ~ stars + borugh, data = nyc_airbnb) 
 
 Permutation testing - when you don't trust the assumptions you should use this
 Is brough significant: can't look at individual values need to look at whole thing
@@ -122,30 +182,74 @@ Is brough significant: can't look at individual values need to look at whole thi
 Try testing nested model
 
 ```{r}
-fit_null = lm(price ~ stars, data = nyc_airbnb)
-fit_alt = lm(price ~ stars + borough, data = nyc_airbnb)
+fit_infreq_null = lm(price ~ stars, data = nyc_airbnb)
+fit_infreq_alt = lm(price ~ stars + borough, data = nyc_airbnb)
   
-  anova(vit_null, fit_alt)
+anova(fit_infreq_null, fit_infreq_alt) |> 
+  broom::tidy()
 ```
 
+## Nesting data, fit models
+Fit interactions: slope on stars and boroughs
+  -interactions important, complicated to understand
 
-## Nesting data
 different from nesting models - 
 ```{r}
-nyc_airbnb |> 
+fit_nest =
+  nyc_airbnb_infreq |> 
   lm(price ~ stars * borough + room_type, data = _) |> 
   broom::tidy() |> 
   knitr::kable(digits = 3)
+
+fit_nest
 ```
 looking at relation
-does stars differ if its in brooklyn vs manhattan
-  -how does reference of room tiype differ from reference category:
-    -shared room type for Manhattan
-    
-What if I want to know what's happening in Manhattan?
+does stars differ if its in Brooklyn vs Manhattan
+  -how does reference of room type differ from reference category:
+    -shared room type for Manhattan seems to have a much cheaper type
+  -difference between private room and entire apartment in Brooklyn
+    -take overall effect and add to the interested data point
+Framework of interactions: assess stat sig, compare stat with interactions to not to see if it fits
+  -test important and unimportant
+
+Pretty formal and complicated
+```{r}
+fit = lm(price ~ stars * borough + room_type * borough, data = nyc_airbnb_infreq) |> 
+  broom::tidy()
+
+fit
+```
+
+This is more exploratory but maybe easier to understand:
+```{r}
+nyc_airbnb |> 
+  nest(data = -borough)
+```
+Tibble with boroughs with entire data frame in other column
+  -can you fit a model to this (Manhattan, Queens, etc) list column
+    -with map and mutate
 
 ```{r}
 nyc_airbnb |> 
+  nest(data = -borough) |> 
+  mutate(
+    models = map(.x = data, ~lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)
+  ) |> 
+  select(-data, -models) |> 
+  unnest(results) |> 
+  filter(term != "Intercept") |> 
+  select(borough, term, estimate) |> 
+  pivot_wider(
+    names_from = borough,
+    values_from = estimate
+  )
+```
+going from entire apartment to private room will save you 53 in Bronx
+    
+What if I want to know what's happening in Manhattan?
+```{r}
+nyc_airbnb_infreq |> 
   filter(borough == "Manhattan") |> 
   lm(price ~ stars + room_type, data = _) |> 
   broom::tidy()
@@ -156,130 +260,21 @@ nyc_airbnb |>
   broom::tidy()
 ```
 
-If we want to do this over and over again have to do the 5 boroughs
-
-Fix this with iteration
+Nest even more:
 ```{r}
 nyc_airbnb |> 
-  nest(datasets = -borough)
-
-airbnb_lm = function(data) {
-  
-  lm(price ~ stars + room_type, data = data)
-}
-```
-
-
-```{r}
-nyc_airbnb |> 
-  nest(datasets = -borough) |> 
-  mutate(fits = map(datasets, airbnb_lm))
-```
-by bourgh fits linear models to data
-
-```{r}
-nyc_airbnb |> 
-  nest(datasets = -borough) |> 
+  filter(borough == "Manhattan") |> 
+  nest(data = -neighborhood) |> 
   mutate(
-    fits = map(datasets, airbnb_lm),
-    results = map(fits, broom::tidy)
+    models = map(.x = data, ~lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)
   ) |> 
-  pull(results)
-
-nyc_airbnb |> 
-  nest(datasets = -borough) |> 
-  mutate(
-    fits = map(datasets, airbnb_lm),
-    results = map(fits, broom::tidy)
-  ) |> 
-  select(-datasets, -fits) |> 
+  select(-data, -models) |> 
   unnest(results) |> 
-  select(borough, term, estimate) |> 
-  pivot_wider(
-    names_from = term,
-    values_from = estimate
-  )
-
-```
-
-Before create one fucntion and plugs in input where it's supposed to go, happens often enough that 
-  -create anonymous function 
-  -puts argument and 
-
-```{r}
-nyc_airbnb |> 
-  nest(datasets = -borough) |> 
-  mutate(
-    fits = map(datasets, \data() lm(price ~ stars + room_type, data = data)),
-    results = map(fits, broom::tidy)
-  ) |> 
-  pull(results)
-
-nyc_airbnb |> 
-  nest(datasets = -borough) |> 
-  mutate(
-    fits = map(datasets, airbnb_lm),
-    results = map(fits, broom::tidy)
-  ) |> 
-  select(-datasets, -fits) |> 
-  unnest(results) |> 
-  select(borough, term, estimate) |> 
-  pivot_wider(
-    names_from = term,
-    values_from = estimate
-  )
-
-```
-
-```{r}
-nyc_airbnb |> 
-  filteR(borough == "linear_models.Rmdanhattan") |> 
-  nest(datasets = -neighborhood) |> 
-  mutate(
-    fits = map(datasets, \(df) lm(price ~ stars + room_type, data =df)),
-    results = map(fits, broom::tidy)
-  ) |> 
-  select(neighborhood, results) |> 
-  unnest(resutls) |> 
-  filter(term == "room_typePrivate room") |> 
+  filter(str_detect(term, "room_type")) |> 
   ggplot(aes(x = neighborhood, y = estimate)) +
   geom_point() +
-  theme(axis.text.x = element_text(angle = 80, hjust = 1))
-```
-nest data according to neighborhood, tidy up with broom tidy, look at results: is room vs entire apartment different in Manhattan
-
-working the way I'm excpecting to: data sets fits column and results column
-  -one factor could be dropping between different neighborhoods
-  
-## Logistic regression
-
-```{r}
-baltimore_df = 
-  read_csv("data/homicide-data.csv") |> 
-  filter(city == "Baltimore") |> 
-  mutate(
-    resolved = as.numeric(disposition == "Closed by arrest"),
-    victim_age = as.numeric(victim_age)
-  )
-baltimore_df
+  facet_wrap(. ~ term) +
+  theme(axis.text.x = element_text(angle = 70, vjust = 0.5, hjust = 1))
 ```
 
-
-Fit the logistic regression
-
-```{r}
-fit_logistic = 
-  baltimore_df |> 
-  mutate(victim_race = fct_infreq(victim_race)) |> 
-  glm(resolved ~ victim_age + victim_race, data = _, family = binomial())
-
-
-
-fit_logistic |> 
-  broom::tidy() |> 
-  mutate(OR = exp(estimate)) |> 
-  select(term, OR, estimate, p.value) |> 
-  knitr::kable(digits = 3)
-```
-
-Binomial just goes with logistic regression
